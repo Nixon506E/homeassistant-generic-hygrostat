@@ -1,7 +1,7 @@
 {
   "domain": "generic_hygrostat",
   "name": "Generic Hygrostat",
-  "documentation": "https://github.com/basschipper/homeassistant-generic-hygrostat",
+  "documentation": "https://github.com/nixon506e/homeassistant-generic-hygrostat",
   "dependencies": [],
   "codeowners": ["nixon506e"],
   "requirements": [],
