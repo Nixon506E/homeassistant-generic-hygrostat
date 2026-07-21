@@ -1,34 +1,56 @@
 {
   "config": {
-	"step": {
-	  "user": {
-		"title": "Configure Generic Hygrostat",
-		"description": "Provide the parameters to dynamically compute humidity trigger spikes.",
-		"data": {
-		  "name": "Integration Name",
-		  "sensor": "Humidity Sensor",
-		  "attribute": "Target Sensor Attribute (Optional)",
-		  "delta_trigger": "Delta Spike Trigger",
-		  "target_offset": "Target Humidity Offset",
-		  "min_humidity": "Minimum Humidity Threshold",
-		  "min_on_time": "Minimum Run Duration",
-		  "max_on_time": "Maximum Safety Cutoff",
-		  "sample_interval": "History Window Interval"
-		},
-		"data_description": {
-		  "sensor": "The input humidity sensor tracked for rapid moisture fluctuations.",
-		  "delta_trigger": "The percentage rise over the sample interval needed to activate.",
-		  "target_offset": "The target drop percentage below baseline to turn off.",
-		  "sample_interval": "How far back in history to analyze changes."
-		}
-	  }
-	},
-	"error": {
-	  "cannot_connect": "Failed to poll data from target humidity engine."
-	},
-	"abort": {
-	  "already_configured": "An integration instance with this name already exists."
-	}
+    "step": {
+      "user": {
+        "title": "Configure Generic Hygrostat",
+        "description": "Provide the parameters to dynamically compute humidity trigger spikes.",
+        "data": {
+          "name": "Integration Name",
+          "sensor": "Humidity Sensor"
+        },
+        "data_description": {
+          "sensor": "The input humidity sensor tracked for rapid moisture fluctuations."
+        }
+      },
+      "attributes": {
+        "data": {
+          "attribute": "Target Sensor Attribute (Optional)",
+          "delta_trigger": "Delta Spike Trigger",
+          "target_offset": "Target Humidity Offset",
+          "min_humidity": "Minimum Humidity Threshold",
+          "min_on_time": "Minimum Run Duration",
+          "max_on_time": "Maximum Safety Cutoff",
+          "sample_interval": "History Window Interval"
+        },
+        "data_description": {
+          "delta_trigger": "The percentage rise over the sample interval needed to activate.",
+          "target_offset": "The target drop percentage below baseline to turn off.",
+          "sample_interval": "How far back in history to analyze changes."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to poll data from target humidity engine."
+    },
+    "abort": {
+      "already_configured": "An integration instance with this name already exists."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Generic Hygrostat Options",
+        "description": "Tweak operational trigger behaviors dynamically without deleting your sensor.",
+        "data": {
+          "delta_trigger": "Delta Spike Trigger",
+          "target_offset": "Target Humidity Offset",
+          "min_humidity": "Minimum Humidity Threshold",
+          "min_on_time": "Minimum Run Duration",
+          "max_on_time": "Maximum Safety Cutoff",
+          "sample_interval": "History Window Interval"
+        }
+      }
+    }
   },
   "issues": {
     "deprecated_yaml": {
