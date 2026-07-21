@@ -39,7 +39,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Generic Hygrostat platform dynamically from a config flow."""
-    config = entry.data
+    config = {**entry.data, **entry.options}
 
     name = config.get(CONF_NAME)
     sensor_id = config.get(CONF_SENSOR)
@@ -59,6 +59,12 @@ async def async_setup_entry(
 
     async_add_entities([hygrostat], True)
 
+    async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Reload integration dynamically when options change."""
+        await hass.config_entries.async_reload(entry.entry_id)
+        
+    if not entry.update_listeners:
+        entry.add_update_listener(_async_update_listener)
 
 class GenericHygrostat(BinarySensorEntity):
     """Representation of a Generic Hygrostat device."""
