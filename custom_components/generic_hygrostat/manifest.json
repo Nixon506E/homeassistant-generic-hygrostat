@@ -3,6 +3,7 @@
   "name": "Generic Hygrostat",
   "documentation": "https://github.com/basschipper/homeassistant-generic-hygrostat",
   "dependencies": [],
-  "codeowners": ["@basschipper"],
-  "requirements": []
+  "codeowners": ["nixon506e"],
+  "requirements": [],
+  "version": "1.0.0"
 }
