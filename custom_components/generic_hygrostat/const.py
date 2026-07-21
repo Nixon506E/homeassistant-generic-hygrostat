@@ -5,6 +5,7 @@ PLATFORMS = ["binary_sensor"]
 
 # Shared Configuration Variable Strings
 CONF_SENSOR = "sensor"
+CONF_ATTRIBUTE = "attribute"
 CONF_DELTA_TRIGGER = "delta_trigger"
 CONF_TARGET_OFFSET = "target_offset"
 CONF_MIN_HUMIDITY = "min_humidity"
