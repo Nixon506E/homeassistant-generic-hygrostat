@@ -1,0 +1,39 @@
+{
+  "config": {
+	"step": {
+	  "user": {
+		"title": "Configure Generic Hygrostat",
+		"description": "Provide the parameters to dynamically compute humidity trigger spikes.",
+		"data": {
+		  "name": "Integration Name",
+		  "sensor": "Humidity Sensor",
+		  "attribute": "Target Sensor Attribute (Optional)",
+		  "delta_trigger": "Delta Spike Trigger",
+		  "target_offset": "Target Humidity Offset",
+		  "min_humidity": "Minimum Humidity Threshold",
+		  "min_on_time": "Minimum Run Duration",
+		  "max_on_time": "Maximum Safety Cutoff",
+		  "sample_interval": "History Window Interval"
+		},
+		"data_description": {
+		  "sensor": "The input humidity sensor tracked for rapid moisture fluctuations.",
+		  "delta_trigger": "The percentage rise over the sample interval needed to activate.",
+		  "target_offset": "The target drop percentage below baseline to turn off.",
+		  "sample_interval": "How far back in history to analyze changes."
+		}
+	  }
+	},
+	"error": {
+	  "cannot_connect": "Failed to poll data from target humidity engine."
+	},
+	"abort": {
+	  "already_configured": "An integration instance with this name already exists."
+	}
+  },
+  "issues": {
+    "deprecated_yaml": {
+      "title": "Legacy YAML configuration detected",
+      "description": "Your Generic Hygrostat configuration has been successfully imported into the UI.\n\nPlease remove the `- platform: generic_hygrostat` block from your `configuration.yaml` file and restart Home Assistant to clear this warning."
+    }
+  }
+}
