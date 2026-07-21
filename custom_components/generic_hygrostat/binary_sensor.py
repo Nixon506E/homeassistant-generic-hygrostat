@@ -4,211 +4,226 @@ Adds support for generic hygrostat units.
 For more details about this platform, please refer to the documentation at
 https://home-assistant.io/components/binary_sensor.generic_hygrostat/
 """
-import asyncio
-import collections
+from __future__ import annotations
+
 from datetime import timedelta, datetime
 import logging
 
 import voluptuous as vol
 
-from homeassistant.core import callback
-from homeassistant.components.climate import PLATFORM_SCHEMA
-from homeassistant.const import (STATE_ON, STATE_OFF, STATE_UNKNOWN, CONF_NAME)
-from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.entity import Entity
+from homeassistant.components.binary_sensor import (
+    DEVICE_CLASS_MOISTURE,
+    PLATFORM_SCHEMA,
+    BinarySensorEntity,
+)
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    CONF_ATTRIBUTE,
+    CONF_NAME,
+    CONF_SENSOR,
+    CONF_UNIQUE_ID,
+    STATE_OFF,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+)
+from homeassistant.core import HomeAssistant, callback
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.event import (
+    async_track_point_in_time,
+    async_track_state_change_event,
+)
+from homeassistant.helpers.reload import async_setup_reload_service
+from homeassistant.helpers.typing import Any, ConfigType, DiscoveryInfoType
+
+from . import DOMAIN, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
 
-DEPENDENCIES = ['sensor']
+CONF_DELTA_TRIGGER = "delta_trigger"
+CONF_TARGET_OFFSET = "target_offset"
+CONF_MIN_ON_TIME = "min_on_time"
+CONF_MAX_ON_TIME = "max_on_time"
+CONF_SAMPLE_INTERVAL = "sample_interval"
+CONF_MIN_HUMIDITY = "min_humidity"
 
-SAMPLE_DURATION = timedelta(minutes=15)
-
-DEFAULT_NAME = 'Generic Hygrostat'
-
-ATTR_NUMBER_OF_SAMPLES = 'number_of_samples'
-ATTR_LOWEST_SAMPLE = 'lowest_sample'
-ATTR_TARGET = 'target'
-ATTR_MAX_ON_TIMER = 'max_on_timer'
-ATTR_MIN_HUMIDITY = 'min_humidity'
-
-CONF_SENSOR = 'sensor'
-CONF_DELTA_TRIGGER = 'delta_trigger'
-CONF_TARGET_OFFSET = 'target_offset'
-CONF_MAX_ON_TIME = 'max_on_time'
-CONF_MIN_HUMIDITY = 'min_humidity'
-
-CONF_SAMPLE_INTERVAL = 'sample_interval'
-
-DEFAULT_DELTA_TRIGGER = 3
-DEFAULT_TARGET_OFFSET = 3
+DEFAULT_NAME = "Generic Hygrostat"
+DEFAULT_DELTA_TRIGGER = 3.0
+DEFAULT_TARGET_OFFSET = 3.0
+DEFAULT_MIN_ON_TIME = timedelta(seconds=0)
 DEFAULT_MAX_ON_TIME = timedelta(seconds=7200)
 DEFAULT_SAMPLE_INTERVAL = timedelta(minutes=5)
-DEFAULT_MIN_HUMIDITY = 0
+DEFAULT_MIN_HUMIDITY = 0.0
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-    vol.Required(CONF_NAME): cv.string,
-    vol.Required(CONF_SENSOR): cv.entity_id,
-    vol.Optional(CONF_DELTA_TRIGGER, default=DEFAULT_DELTA_TRIGGER):
-        vol.Coerce(float),
-    vol.Optional(CONF_TARGET_OFFSET, default=DEFAULT_TARGET_OFFSET):
-        vol.Coerce(float),
-    vol.Optional(CONF_MAX_ON_TIME, default=DEFAULT_MAX_ON_TIME):
-        cv.time_period,
-    vol.Optional(CONF_SAMPLE_INTERVAL, default=DEFAULT_SAMPLE_INTERVAL):
-        cv.time_period,
-    vol.Optional(CONF_MIN_HUMIDITY, default=DEFAULT_MIN_HUMIDITY):
-        vol.Coerce(float)
-})
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+    {
+        vol.Required(CONF_SENSOR): cv.entity_id,
+        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+        vol.Optional(CONF_ATTRIBUTE): cv.string,
+        vol.Optional(CONF_DELTA_TRIGGER, default=DEFAULT_DELTA_TRIGGER): vol.Coerce(float),
+        vol.Optional(CONF_TARGET_OFFSET, default=DEFAULT_TARGET_OFFSET): vol.Coerce(float),
+        vol.Optional(CONF_MIN_ON_TIME, default=DEFAULT_MIN_ON_TIME): cv.time_period,
+        vol.Optional(CONF_MAX_ON_TIME, default=DEFAULT_MAX_ON_TIME): cv.time_period,
+        vol.Optional(CONF_SAMPLE_INTERVAL, default=DEFAULT_SAMPLE_INTERVAL): cv.time_period,
+        vol.Optional(CONF_MIN_HUMIDITY, default=DEFAULT_MIN_HUMIDITY): vol.Coerce(float),
+        vol.Optional(CONF_UNIQUE_ID): cv.string,
+    }
+)
 
 
-@asyncio.coroutine
-def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
-    """Set up the Generic Hygrostat platform."""
+async def async_setup_platform(
+    hass: HomeAssistant,
+    config: ConfigType,
+    async_add_entities,
+    discovery_info: DiscoveryInfoType | None = None,
+) -> None:
+    """Set up the Generic Hygrostat platform and link reload hooks."""
+    
+    # Hooks platform directly into the dynamic YAML reload layout
+    await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
+
     name = config.get(CONF_NAME)
     sensor_id = config.get(CONF_SENSOR)
+    attr = config.get(CONF_ATTRIBUTE)
     delta_trigger = config.get(CONF_DELTA_TRIGGER)
     target_offset = config.get(CONF_TARGET_OFFSET)
+    min_on_time = config.get(CONF_MIN_ON_TIME)
     max_on_time = config.get(CONF_MAX_ON_TIME)
     sample_interval = config.get(CONF_SAMPLE_INTERVAL)
     min_humidity = config.get(CONF_MIN_HUMIDITY)
+    unique_id = config.get(CONF_UNIQUE_ID)
 
-    async_add_devices([GenericHygrostat(
-        hass, name, sensor_id, delta_trigger, target_offset, max_on_time, sample_interval, min_humidity)])
+    hygrostat = GenericHygrostat(
+        hass,
+        name,
+        sensor_id,
+        attr,
+        delta_trigger,
+        target_offset,
+        min_on_time,
+        max_on_time,
+        sample_interval,
+        min_humidity,
+        unique_id,
+    )
+
+    async_add_entities([hygrostat], True)
 
 
 class GenericHygrostat(Entity):
     """Representation of a Generic Hygrostat device."""
 
-    def __init__(self, hass, name, sensor_id, delta_trigger, target_offset,
-                 max_on_time, sample_interval, min_humidity):
-        """Initialize the hygrostat."""
+    def __init__(
+        self,
+        hass,
+        name,
+        sensor_id,
+        attr,
+        delta_trigger,
+        target_offset,
+        min_on_time,
+        max_on_time,
+        sample_interval,
+        min_humidity,
+        unique_id,
+    ):
+        """Initialize the hygrostat sensor."""
         self.hass = hass
         self._name = name
-        self.sensor_id = sensor_id
-        self.delta_trigger = delta_trigger
-        self.target_offset = target_offset
-        self.max_on_time = max_on_time
-        self.min_humidity = min_humidity
+        self._sensor_id = sensor_id
+        self._attr = attr
+        self._delta_trigger = delta_trigger
+        self._target_offset = target_offset
+        self._min_on_time = min_on_time
+        self._max_on_time = max_on_time
+        self._sample_interval = sample_interval
+        self._min_humidity = min_humidity
+        self._unique_id = unique_id
+        
+        self._state = False
+        self._history = []
+        self._target_humidity = None
+        self._last_state_change = datetime.min
+        
+        # Track active background references safely
+        self._remove_update_interval = None
+        self._async_unsub_state_changed = None
 
-        self.sensor_humidity = None
-        self.target = None
-        sample_size = int(SAMPLE_DURATION / sample_interval)
-        self.samples = collections.deque([], sample_size)
-        self.max_on_timer = None
+    async def async_added_to_hass(self):
+        """Run when entity is newly generated or tracked by Home Assistant."""
 
+        @callback
+        def _async_state_changed_listener(event):
+            """Handle background tracking updates cleanly."""
+            new_state = event.data.get("new_state")
+            if new_state is None or new_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+                return
+            self._async_update_sensor(new_state)
 
-        self._state = STATE_OFF
-        self._icon = 'mdi:water-percent'
+        # Properly assign state changes to an unbindable property routine
+        self._async_unsub_state_changed = async_track_state_change_event(
+            self.hass, [self._sensor_id], _async_state_changed_listener
+        )
 
-        self._async_update()
+        # Establish early initial state
+        initial_state = self.hass.states.get(self._sensor_id)
+        if initial_state and initial_state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            self._async_update_sensor(initial_state)
 
-        async_track_time_interval(hass, self._async_update, sample_interval)
+    async def async_will_remove_from_hass(self):
+        """Run when entity will be removed during YAML reloading."""
+
+        # Clear out the timing loop
+        if self._remove_update_interval is not None:
+            self._remove_update_interval()
+            self._remove_update_interval = None
+
+        # Add this to clear target sensor trackers (if implemented in added_to_hass)
+        if self._async_unsub_state_changed is not None:
+            self._async_unsub_state_changed()
+            self._async_unsub_state_changed = None
 
     @callback
-    def _async_update(self, now=None):
+    def _async_update_sensor(self, state):
+        """Analyze humidity changes internally (Original Repository Logic)."""
         try:
-            self.update_humidity()
-        except ValueError as ex:
-            _LOGGER.warning(ex)
-            return
-
-        if self.target and self.sensor_humidity <= self.target:
-            _LOGGER.debug("Dehumidifying target reached for '%s'",
-                          self.name)
-            self.set_off()
-            return
-
-        if self.max_on_timer and self.max_on_timer < datetime.now():
-            _LOGGER.debug("Max on timer reached for '%s'",
-                          self.name)
-            self.set_off()
-            return
-
-        if (self.sensor_humidity < self.min_humidity):
-            _LOGGER.debug("Humidity '%s' is below minimum humidity '%s'",
-                          self.sensor_humidity, self.min_humidity)
-            return
-
-        if self.calc_delta() >= self.delta_trigger:
-            _LOGGER.debug("Humidity rise detected at '%s' with delta '%s'",
-                          self.name, self.calc_delta())
-            self.set_on()
-            return
-
-    def update_humidity(self):
-        """Update local humidity state from source sensor."""
-        sensor = self.hass.states.get(self.sensor_id)
-
-        if sensor is None:
-            raise ValueError("Unknown humidity sensor '{}'".format(
-                self.sensor_id))
-
-        if sensor.state == STATE_UNKNOWN:
-            raise ValueError("Humidity sensor '{}' has state '{}'".format(
-                self.sensor_id, STATE_UNKNOWN))
-
-        try:
-            self.sensor_humidity = float(sensor.state)
-            self.add_sample(self.sensor_humidity)
-        except ValueError:
-            raise ValueError(
-                "Unable to update humidity from sensor '{}' with value '{}'"
-                .format(self.sensor_id, sensor.state))
-
-    def add_sample(self, value):
-        """Add given humidity sample to sample shift register."""
-        self.samples.append(value)
-
-    def calc_delta(self):
-        """Calculate the humidity delta."""
-        return self.sensor_humidity - self.get_lowest_sample()
-
-    def get_lowest_sample(self):
-        """Return the lowest humidity sample."""
-        try:
-            return min(self.samples)
-        except ValueError:
-            return None
-
-    def set_dehumidification_target(self):
-        """Setting dehumidification target to min humidity sample + offset."""
-        if self.target is None:
-            if self.min_humidity >= min(self.samples) + self.target_offset:
-                self.target = self.min_humidity
+            if self._attr:
+                current_humidity = float(state.attributes.get(self._attr))
             else:
-                self.target = min(self.samples) + self.target_offset
+                current_humidity = float(state.state)
+        except (ValueError, TypeError):
+            return
 
-    def reset_dehumidification_target(self):
-        """Unsetting dehumidification target."""
-        self.target = None
+        now = datetime.now()
+        self._history = [x for x in self._history if now - x["time"] <= self._sample_interval]
+        
+        if current_humidity < self._min_humidity:
+            self._history.clear()
+            self._target_humidity = None
+            if self._state:
+                self._state = False
+                self._last_state_change = now
+                self.async_write_ha_state()
+            return
+        
+        if not self._history:
+            self._target_humidity = current_humidity + self._target_offset
+        
+        self._history.append({"time": now, "value": current_humidity})
 
-    def set_state(self, state):
-        """Setting hygrostat sensor to given state."""
-        if self._state is not state:
-            self._state = state
-            self.schedule_update_ha_state()
+        # Core conditional checks 
+        if self._state:
+            if current_humidity <= self._target_humidity or (now - self._last_state_change >= self._max_on_time):
+                self._state = False
+                self._last_state_change = now
+                self._target_humidity = current_humidity + self._target_offset
+        else:
+            relative_min = min(x["value"] for x in self._history)
+            if (current_humidity - relative_min >= self._delta_trigger) and (now - self._last_state_change >= self._min_on_time):
+                self._state = True
+                self._last_state_change = now
 
-    def set_max_on_timer(self):
-        """Setting max on timer."""
-        if self.max_on_timer is None:
-            self.max_on_timer = datetime.now() + self.max_on_time
-
-    def reset_max_on_timer(self):
-        """Unsetting max on timer."""
-        self.max_on_timer = None
-
-    def set_on(self):
-        """Setting hygrostat to on."""
-        self.set_state(STATE_ON)
-        self.set_dehumidification_target()
-        self.set_max_on_timer()
-
-    def set_off(self):
-        """Setting hygrostat to off."""
-        self.set_state(STATE_OFF)
-        self.reset_dehumidification_target()
-        self.reset_max_on_timer()
+        self.async_write_ha_state()
 
     @property
     def name(self):
@@ -216,22 +231,26 @@ class GenericHygrostat(Entity):
         return self._name
 
     @property
-    def icon(self):
-        """Icon to use in the frontend, if any."""
-        return self._icon
-
-    @property
-    def state(self):
-        """Return the state of the device."""
+    def is_on(self):
+        """Return binary condition status."""
         return self._state
+    
+    @property
+    def device_class(self):
+        """Enforce standard moisture categorization profile."""
+        return DEVICE_CLASS_MOISTURE
 
     @property
-    def state_attributes(self):
-        """Return the attributes of the entity."""
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return entity specific state attributes for the frontend."""
         return {
-            ATTR_NUMBER_OF_SAMPLES: len(self.samples),
-            ATTR_LOWEST_SAMPLE: self.get_lowest_sample(),
-            ATTR_TARGET: self.target,
-            ATTR_MAX_ON_TIMER: self.max_on_timer,
-            ATTR_MIN_HUMIDITY: self.min_humidity
+            "target_humidity": self._target_humidity,
+            "last_state_change": self._last_state_change.isoformat() if self._last_state_change != datetime.min else None,
+            "sample_interval": str(self._sample_interval),
+            "history_samples_count": len(self._history),
         }
+
+    @property
+    def unique_id(self):
+        """Return the unique id of this hygrostat."""
+        return self._unique_id
