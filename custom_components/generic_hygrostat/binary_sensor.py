@@ -151,7 +151,6 @@ class GenericHygrostat(BinarySensorEntity):
             return
 
         now = datetime.now()
-        self._history = [x for x in self._history if now - x["time"] <= self._sample_interval]
         
         if current_humidity < self._min_humidity:
             self._history.clear()
@@ -162,22 +161,30 @@ class GenericHygrostat(BinarySensorEntity):
                 self.async_write_ha_state()
             return
         
-        if not self._history:
+        if not self._history and not self._state:
             self._target_humidity = current_humidity + self._target_offset
         
         self._history.append({"time": now, "value": current_humidity})
 
+        # Prune history to sample_interval window
+        self._history = [x for x in self._history if now - x["time"] <= self._sample_interval]
+        
         # Core conditional checks 
         if self._state:
-            if current_humidity <= self._target_humidity or (now - self._last_state_change >= self._max_on_time):
+            on_duration = now - self._last_state_change
+            if on_duration >= self._max_on_time or (
+                on_duration >= self._min_on_time and current_humidity <= self._target_humidity
+            ):
                 self._state = False
                 self._last_state_change = now
+                self._history.clear()
                 self._target_humidity = current_humidity + self._target_offset
         else:
             relative_min = min(x["value"] for x in self._history)
-            if (current_humidity - relative_min >= self._delta_trigger) and (now - self._last_state_change >= self._min_on_time):
+            if current_humidity - relative_min >= self._delta_trigger:
                 self._state = True
                 self._last_state_change = now
+                self._history.clear()
 
         self.async_write_ha_state()
 
